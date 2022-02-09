@@ -1,6 +1,7 @@
-import json
+import sys
 import numpy as np
 import pandas as pd
+
 
 def preprocess(data_name):
     u_list, i_list, ts_list, label_list = [], [], [], []
@@ -15,8 +16,6 @@ def preprocess(data_name):
             u = int(e[0])
             i = int(e[1])
             
-            
-            
             ts = float(e[2])
             label = int(e[3])
             
@@ -29,17 +28,16 @@ def preprocess(data_name):
             idx_list.append(idx)
             
             feat_l.append(feat)
-    return pd.DataFrame({'u': u_list, 
-                         'i':i_list, 
-                         'ts':ts_list, 
-                         'label':label_list, 
-                         'idx':idx_list}), np.array(feat_l)
-
+    return pd.DataFrame({'u': u_list,
+                         'i': i_list,
+                         'ts': ts_list,
+                         'label': label_list,
+                         'idx': idx_list}), np.array(feat_l)
 
 
 def reindex(df):
-    assert(df.u.max() - df.u.min() + 1 == len(df.u.unique()))
-    assert(df.i.max() - df.i.min() + 1 == len(df.i.unique()))
+    assert (df.u.max() - df.u.min() + 1 == len(df.u.unique()))
+    assert (df.i.max() - df.i.min() + 1 == len(df.i.unique()))
     
     upper_u = df.u.max() + 1
     new_i = df.i + upper_u
@@ -57,7 +55,6 @@ def reindex(df):
     print(new_df.i.max())
     
     return new_df
-
 
 
 def run(data_name):
@@ -80,8 +77,11 @@ def run(data_name):
     new_df.to_csv(OUT_DF)
     np.save(OUT_FEAT, feat)
     np.save(OUT_NODE_FEAT, rand_feat)
-    
-    
-run('wikipedia')
 
-#run('reddit')
+
+if __name__ == "__main__":
+    argv = sys.argv
+    if len(argv) < 2:
+        print("Usage: python3 %s [name]" % argv[0])
+        exit(1)
+    run(argv[1])

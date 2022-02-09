@@ -1,10 +1,8 @@
 import logging
-
 import numpy as np
 import torch
-
 import torch.nn as nn
-import torch.nn.functional as F
+
 
 class MergeLayer(torch.nn.Module):
     def __init__(self, dim1, dim2, dim3, dim4):
@@ -345,7 +343,6 @@ class AttnModel(torch.nn.Module):
         else:
             raise ValueError('attn_mode can only be prod or map')
         
-        
     def forward(self, src, src_t, seq, seq_t, seq_e, mask):
         """"Attention based temporal attention forward pass
         args:
@@ -375,7 +372,6 @@ class AttnModel(torch.nn.Module):
         output, attn = self.multi_head_target(q=q, k=k, v=k, mask=mask) # output: [B, 1, D + Dt], attn: [B, 1, N]
         output = output.squeeze()
         attn = attn.squeeze()
-
         output = self.merger(output, src)
         return output, attn
 
@@ -445,8 +441,6 @@ class TGAN(torch.nn.Module):
         
         src_embed = self.tem_conv(src_idx_l, cut_time_l, self.num_layers, num_neighbors)
         target_embed = self.tem_conv(target_idx_l, cut_time_l, self.num_layers, num_neighbors)
-        
- 
         score = self.affinity_score(src_embed, target_embed).squeeze(dim=-1)
         
         return score

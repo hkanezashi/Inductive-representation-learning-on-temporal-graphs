@@ -16,9 +16,11 @@
 
 ## Introduction
 
-The evolving nature of temporal dynamic graphs requires handling new nodes as well as capturing temporal patterns. The node embeddings, as functions of time, should represent both the static node features and the evolving topological structures. 
+The evolving nature of temporal dynamic graphs requires handling new nodes as well as capturing temporal patterns.
+The node embeddings, as functions of time, should represent both the static node features and the evolving topological structures. 
 
-We propose the temporal graph attention (TGAT) layer to efficiently aggregate temporal-topological neighborhood features as well as to learn the time-feature interactions. Stacking TGAT layers, the network recognizes the node embeddings as functions of time and is able to inductively infer embeddings for both new and observed nodes as the graph evolves. 
+We propose the temporal graph attention (TGAT) layer to efficiently aggregate temporal-topological neighborhood features as well as to learn the time-feature interactions.
+Stacking TGAT layers, the network recognizes the node embeddings as functions of time and is able to inductively infer embeddings for both new and observed nodes as the graph evolves. 
 
 The proposed approach handles both node classification and link prediction task, and can be naturally extended to include the temporal edge features.
 
@@ -28,21 +30,30 @@ The proposed approach handles both node classification and link prediction task,
 ![architecture](architecture.png?raw=true "Network architecture")
 
 ### Self-attention with functional representation learning
-The theoretical arguments developed in this paper are from our concurrent work: [Self-attention with Functional Time Representation Learning (NeurIPS 2019)](https://arxiv.org/abs/1911.12864). The implementation is also available at the [github page](https://github.com/StatsDLMathsRecomSys/Self-attention-with-Functional-Time-Representation-Learning).
+The theoretical arguments developed in this paper are from our concurrent work: [Self-attention with Functional Time Representation Learning (NeurIPS 2019)](https://arxiv.org/abs/1911.12864).
+The implementation is also available at the [github page](https://github.com/StatsDLMathsRecomSys/Self-attention-with-Functional-Time-Representation-Learning).
 
 ## Running the experiments
 
 ### Dataset and preprocessing
 
 #### Download the public data
-* [Reddit](http://snap.stanford.edu/jodie/reddit.csv)
+The original datasets are available at [JODIE: Predicting Dynamic Embedding Trajectory in Temporal Interaction Networks](http://snap.stanford.edu/jodie/)
 
+* [Reddit](http://snap.stanford.edu/jodie/reddit.csv)
 * [Wikipedia](http://snap.stanford.edu/jodie/wikipedia.csv)
+* [MOOC](http://snap.stanford.edu/jodie/mooc.csv)
+* [LastFM](http://snap.stanford.edu/jodie/lastfm.csv)
+
 
 #### Preprocess the data
-We use the dense `npy` format to save the features in binary format. If edge features or nodes features are absent, it will be replaced by a vector of zeros. 
+We use the dense `npy` format to save the features in binary format. 
+If edge features or nodes features are absent, it will be replaced by a vector of zeros.
+
+Replace `reddit` with `wikipedia`, `mooc` or `lastfm` for other datasets.
 ```{bash}
-python process.py 
+wget http://snap.stanford.edu/jodie/reddit.csv
+python process.py reddit
 ```
 
 #### Use your own data
@@ -54,7 +65,7 @@ u, i, ts, label, idx
 ```
 , which represents source node index, target node index, time stamp, edge label and the edge index. 
 
-`ml_${DATA_NAME}.npy` has shape of [#temporal edges + 1, edge features dimention]. Similarly, `ml_${DATA_NAME}_node.npy` has shape of [#nodes + 1, node features dimension].
+`ml_${DATA_NAME}.npy` has shape of [#temporal edges + 1, edge features dimension]. Similarly, `ml_${DATA_NAME}_node.npy` has shape of [#nodes + 1, node features dimension].
 
 
 All node index starts from `1`. The zero index is reserved for `null` during padding operations. So the maximum of node index equals to the total number of nodes. Similarly, maxinum of edge index equals to the total number of temporal edges. The padding embeddings or the null embeddings is a vector of zeros.
@@ -80,10 +91,17 @@ scikit_learn==0.22.1
 * Learning the network using link prediction tasks
 ```{bash}
 # t-gat learning on wikipedia data
-python -u learn_edge.py -d wikipedia --bs 200 --uniform  --n_degree 20 --agg_method attn --attn_mode prod --gpu 0 --n_head 2 --prefix hello_world
+python -u learn_edge.py -d wikipedia --bs 200 --uniform  --n_degree 20 --agg_method attn --attn_mode prod --gpu 0 --n_head 2 --prefix wikipedia
 
 # t-gat learning on reddit data
-python -u learn_edge.py -d reddit --bs 200 --uniform  --n_degree 20 --agg_method attn --attn_mode prod --gpu 0 --n_head 2 --prefix hello_world
+python -u learn_edge.py -d reddit --bs 200 --uniform  --n_degree 20 --agg_method attn --attn_mode prod --gpu 0 --n_head 2 --prefix reddit
+
+# t-gat learning on mooc data
+python -u learn_edge.py -d mooc --bs 2000 --uniform --n_degree 10 --agg_method attn --attn_mode prod --gpu 0 --n_head 2 --prefix mooc
+
+# t-gat learning on lastfm data
+python -u learn_edge.py -d lastfm --bs 10000 --uniform --n_degree 10 --agg_method attn --attn_mode prod --gpu 0 --n_head 2 --prefix lastfm
+
 ```
 
 * Learning the down-stream task (node-classification)
@@ -92,17 +110,20 @@ Node-classification task reuses the network trained previously. Make sure the `p
 
 ```{bash}
 # on wikipedia
-python -u learn_node.py -d wikipedia --bs 100 --uniform  --n_degree 20 --agg_method attn --attn_mode prod --gpu 0 --n_head 2 --prefix hello_world
+python -u learn_node.py -d wikipedia --bs 100 --uniform  --n_degree 20 --agg_method attn --attn_mode prod --gpu 0 --n_head 2 --prefix wikipedia
 
 # on reddit
-python -u learn_node.py -d reddit --bs 100 --uniform  --n_degree 20 --agg_method attn --attn_mode prod --gpu 0 --n_head 2 --prefix hello_world
+python -u learn_node.py -d reddit --bs 100 --uniform  --n_degree 20 --agg_method attn --attn_mode prod --gpu 0 --n_head 2 --prefix reddit
+
+# on mooc
+python -u learn_node.py -d mooc --bs 1000 --uniform --n_degree 10 --agg_method attn --attn_mode prod --gpu 0 --n_head 2 --prefix mooc
 ```
 #### General flags
 
 ```{txt}
 optional arguments:
   -h, --help            show this help message and exit
-  -d DATA, --data DATA  data sources to use, try wikipedia or reddit
+  -d DATA, --data DATA  data sources to use, try wikipedia, reddit, mooc or lastfm
   --bs BS               batch_size
   --prefix PREFIX       prefix to name the checkpoints
   --n_degree N_DEGREE   number of neighbors to sample

@@ -435,7 +435,7 @@ class TGAN(torch.nn.Module):
         else:
             raise ValueError('invalid time option!')
         
-        self.affinity_score = MergeLayer(self.feat_dim, self.feat_dim, self.feat_dim, 1) #torch.nn.Bilinear(self.feat_dim, self.feat_dim, 1, bias=True)
+        self.affinity_score = MergeLayer(self.feat_dim, self.feat_dim, self.feat_dim, 1)
         
     def forward(self, src_idx_l, target_idx_l, cut_time_l, num_neighbors=20):
         
@@ -489,8 +489,8 @@ class TGAN(torch.nn.Module):
             src_ngh_t_batch_th = torch.from_numpy(src_ngh_t_batch_delta).float().to(device)
             
             # get previous layer's node features
-            src_ngh_node_batch_flat = src_ngh_node_batch.flatten() #reshape(batch_size, -1)
-            src_ngh_t_batch_flat = src_ngh_t_batch.flatten() #reshape(batch_size, -1)  
+            src_ngh_node_batch_flat = src_ngh_node_batch.flatten()
+            src_ngh_t_batch_flat = src_ngh_t_batch.flatten()
             src_ngh_node_conv_feat = self.tem_conv(src_ngh_node_batch_flat, 
                                                    src_ngh_t_batch_flat,
                                                    curr_layers=curr_layers - 1, 

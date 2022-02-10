@@ -170,7 +170,7 @@ for src, dst, eidx, ts in zip(src_l, dst_l, e_idx_l, ts_l):
     full_adj_list[dst].append((src, eidx, ts))
 full_ngh_finder = NeighborFinder(full_adj_list, uniform=UNIFORM)
 
-### Model initialize
+# Model initialize
 device = torch.device('cuda:{}'.format(GPU))
 tgan = TGAN(train_ngh_finder, n_feat, e_feat,
             num_layers=NUM_LAYER, use_time=USE_TIME, agg_method=AGG_METHOD, attn_mode=ATTN_MODE,

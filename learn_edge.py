@@ -30,8 +30,8 @@ parser.add_argument('--n_layer', type=int, default=2, help='number of network la
 parser.add_argument('--lr', type=float, default=0.0001, help='learning rate')
 parser.add_argument('--drop_out', type=float, default=0.1, help='dropout probability')
 parser.add_argument('--gpu', type=int, default=0, help='idx for the gpu to use')
-parser.add_argument('--node_dim', type=int, default=100, help='Dimentions of the node embedding')
-parser.add_argument('--time_dim', type=int, default=100, help='Dimentions of the time embedding')
+parser.add_argument('--node_dim', type=int, default=100, help='Dimensions of the node embedding')
+parser.add_argument('--time_dim', type=int, default=100, help='Dimensions of the time embedding')
 parser.add_argument('--agg_method', type=str, choices=['attn', 'lstm', 'mean'], help='local aggregation method', default='attn')
 parser.add_argument('--attn_mode', type=str, choices=['prod', 'map'], default='prod', help='use dot product attention or mapping based')
 parser.add_argument('--time', type=str, choices=['time', 'pos', 'empty'], help='how to use time information', default='time')
@@ -109,7 +109,7 @@ def eval_one_epoch(hint, tgan, sampler, src, dst, ts, label):
                 print(s_idx, e_idx, src_l_cut, dst_l_cut, ts_l_cut)
                 raise e
             
-            pred_score = np.concatenate([(pos_prob).cpu().numpy(), (neg_prob).cpu().numpy()])
+            pred_score = np.concatenate([pos_prob.cpu().numpy(), neg_prob.cpu().numpy()])
             pred_label = pred_score > 0.5
             true_label = np.concatenate([np.ones(size), np.zeros(size)])
             
@@ -230,8 +230,10 @@ logger.info('num of training instances: {}'.format(num_instance))
 logger.info('num of batches per epoch: {}'.format(num_batch))
 idx_list = np.arange(num_instance)
 np.random.shuffle(idx_list)
-
 early_stopper = EarlyStopMonitor()
+
+start_time = time.time()
+
 for epoch in range(NUM_EPOCH):
     # training use only training graph
     tgan.ngh_finder = train_ngh_finder
@@ -273,13 +275,16 @@ for epoch in range(NUM_EPOCH):
         # get training results
         with torch.no_grad():
             tgan = tgan.eval()
-            pred_score = np.concatenate([(pos_prob).cpu().detach().numpy(), (neg_prob).cpu().detach().numpy()])
+            pred_score = np.concatenate([pos_prob.cpu().detach().numpy(), neg_prob.cpu().detach().numpy()])
             pred_label = pred_score > 0.5
             true_label = np.concatenate([np.ones(size), np.zeros(size)])
             acc.append((pred_label == true_label).mean())
             ap.append(average_precision_score(true_label, pred_score))
             m_loss.append(loss.item())
             auc.append(roc_auc_score(true_label, pred_score))
+    
+    tm = time.time()
+    print("Processed {} batches in {:.2f} [s]".format(num_batch, tm - st))
     
     # validation phase use all information
     tgan.ngh_finder = full_ngh_finder
@@ -291,6 +296,7 @@ for epoch in range(NUM_EPOCH):
                                                                   nn_val_dst_l, nn_val_ts_l, nn_val_label_l)
     
     ed = time.time()
+    print("Eval epoch {:.2f} [s]".format(ed - tm))
     logger.info('epoch: {}, {:.2f} [s]:'.format(epoch, ed - st))
     logger.info('Epoch mean loss: {}'.format(np.mean(m_loss)))
     logger.info('train acc: {}, val acc: {}, new node val acc: {}'.format(np.mean(acc), val_acc, nn_val_acc))
@@ -308,6 +314,10 @@ for epoch in range(NUM_EPOCH):
         break
     else:
         torch.save(tgan.state_dict(), get_checkpoint_path(epoch))
+
+end_time = time.time()
+print("{} epochs in {:.2f}".format(epoch, end_time - start_time))
+
 
 # testing phase use all information
 tgan.ngh_finder = full_ngh_finder

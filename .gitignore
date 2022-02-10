@@ -1,0 +1,10 @@
+.idea
+__pycache__
+log/
+!log/example.log
+processed
+!processed/example.csv
+saved_checkpoints
+!saved_checkpoints/example.pt
+saved_models
+!saved_models/example.pt

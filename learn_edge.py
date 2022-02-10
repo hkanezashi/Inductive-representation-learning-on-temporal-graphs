@@ -7,6 +7,8 @@ import sys
 import argparse
 
 import torch
+from torch.autograd import ProfilerActivity
+from torch.autograd.profiler import profile
 import pandas as pd
 import numpy as np
 
@@ -58,7 +60,7 @@ def run(args):
     logger.info(args)
     
     def eval_one_epoch(hint, model, sampler, src_list, dst_list, ts_list, label):
-        val_acc, val_ap, val_f1, val_auc = [], [], [], []
+        _val_acc, _val_ap, _val_f1, _val_auc = [], [], [], []
         with torch.no_grad():
             model = model.eval()
             TEST_BATCH_SIZE = 100
@@ -89,11 +91,11 @@ def run(args):
                 pred_label = pred_score > 0.5
                 true_label = np.concatenate([np.ones(size), np.zeros(size)])
                 
-                val_acc.append((pred_label == true_label).mean())
-                val_ap.append(average_precision_score(true_label, pred_score))
+                _val_acc.append((pred_label == true_label).mean())
+                _val_ap.append(average_precision_score(true_label, pred_score))
                 # val_f1.append(f1_score(true_label, pred_label))
-                val_auc.append(roc_auc_score(true_label, pred_score))
-        return np.mean(val_acc), np.mean(val_ap), np.mean(val_f1), np.mean(val_auc)
+                _val_auc.append(roc_auc_score(true_label, pred_score))
+        return np.mean(_val_acc), np.mean(_val_ap), np.mean(_val_f1), np.mean(_val_auc)
     
     # Load data and train val test split
     g_df = pd.read_csv('./processed/ml_{}.csv'.format(DATA))
@@ -341,10 +343,14 @@ if __name__ == "__main__":
         parser.print_help()
         sys.exit(0)
     
-    if _args.prof is None:
+    prof_name = _args.prof
+    if prof_name is None:
         run(_args)
     else:
-        prof_path = "{}.json".format(_args.prof)
-        with torch.autograd.profiler.profile(use_cuda=True) as prof:
+        prof_json = "{}.json".format(prof_name)
+        prof_txt = "{}.log".format(prof_name)
+        with profile(use_cuda=True, activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
             run(_args)
-            prof.export_chrome_trace(prof_path)
+        with open(prof_txt, "w") as wf:
+            wf.write(str(prof.key_averages().table(sort_by="self_cpu_time_total")))
+        prof.export_chrome_trace(prof_json)

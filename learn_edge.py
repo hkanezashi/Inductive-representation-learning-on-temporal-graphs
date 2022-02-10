@@ -7,8 +7,7 @@ import sys
 import argparse
 
 import torch
-from torch.autograd import ProfilerActivity
-from torch.autograd.profiler import profile
+from torch.profiler import profile, ProfilerActivity
 import pandas as pd
 import numpy as np
 
@@ -18,6 +17,45 @@ from sklearn.metrics import roc_auc_score
 from module import TGAN
 from graph import NeighborFinder
 from utils import EarlyStopMonitor, RandEdgeSampler
+
+
+def eval_one_epoch(model: TGAN, sampler, src_list, dst_list, ts_list, num_neighbors):
+    _val_acc, _val_ap, _val_f1, _val_auc = [], [], [], []
+    with torch.no_grad():
+        model = model.eval()
+        TEST_BATCH_SIZE = 100
+        num_test_instance = len(src_list)
+        num_test_batch = math.ceil(num_test_instance / TEST_BATCH_SIZE)
+        for batch_idx in range(num_test_batch):
+            st_idx = batch_idx * TEST_BATCH_SIZE
+            ed_idx = min(num_test_instance - 1, st_idx + TEST_BATCH_SIZE)
+            
+            if st_idx == ed_idx:
+                break
+            
+            _src_l_cut = src_list[st_idx:ed_idx]
+            _dst_l_cut = dst_list[st_idx:ed_idx]
+            _ts_l_cut = ts_list[st_idx:ed_idx]
+            
+            elem_size = len(_src_l_cut)
+            _src_l_fake, _dst_l_fake = sampler.sample(elem_size)
+            
+            try:
+                pos_p, neg_p = model.contrast(_src_l_cut, _dst_l_cut, _dst_l_fake, _ts_l_cut, num_neighbors)
+            except IndexError as e:
+                print(_src_l_cut.shape, _dst_l_cut.shape, _dst_l_fake.shape, _ts_l_cut.shape)
+                print(st_idx, ed_idx, _src_l_cut, _dst_l_cut, _ts_l_cut)
+                raise e
+            
+            _pred_score = np.concatenate([pos_p.cpu().numpy(), neg_p.cpu().numpy()])
+            _pred_label = _pred_score > 0.5
+            _true_label = np.concatenate([np.ones(elem_size), np.zeros(elem_size)])
+            
+            _val_acc.append((_pred_label == _true_label).mean())
+            _val_ap.append(average_precision_score(_true_label, _pred_score))
+            # val_f1.append(f1_score(true_label, pred_label))
+            _val_auc.append(roc_auc_score(_true_label, _pred_score))
+    return np.mean(_val_acc), np.mean(_val_ap), np.mean(_val_f1), np.mean(_val_auc)
 
 
 def run(args):
@@ -59,50 +97,12 @@ def run(args):
     logger.addHandler(ch)
     logger.info(args)
     
-    def eval_one_epoch(hint, model, sampler, src_list, dst_list, ts_list, label):
-        _val_acc, _val_ap, _val_f1, _val_auc = [], [], [], []
-        with torch.no_grad():
-            model = model.eval()
-            TEST_BATCH_SIZE = 100
-            num_test_instance = len(src_list)
-            num_test_batch = math.ceil(num_test_instance / TEST_BATCH_SIZE)
-            for batch_idx in range(num_test_batch):
-                st_idx = batch_idx * TEST_BATCH_SIZE
-                ed_idx = min(num_test_instance - 1, st_idx + TEST_BATCH_SIZE)
-                
-                if st_idx == ed_idx:
-                    break
-                
-                src_l_cut = src_list[st_idx:ed_idx]
-                dst_l_cut = dst_list[st_idx:ed_idx]
-                ts_l_cut = ts_list[st_idx:ed_idx]
-                
-                size = len(src_l_cut)
-                src_l_fake, dst_l_fake = sampler.sample(size)
-                
-                try:
-                    pos_prob, neg_prob = model.contrast(src_l_cut, dst_l_cut, dst_l_fake, ts_l_cut, NUM_NEIGHBORS)
-                except IndexError as e:
-                    print(src_l_cut.shape, dst_l_cut.shape, dst_l_fake.shape, ts_l_cut.shape)
-                    print(st_idx, ed_idx, src_l_cut, dst_l_cut, ts_l_cut)
-                    raise e
-                
-                pred_score = np.concatenate([pos_prob.cpu().numpy(), neg_prob.cpu().numpy()])
-                pred_label = pred_score > 0.5
-                true_label = np.concatenate([np.ones(size), np.zeros(size)])
-                
-                _val_acc.append((pred_label == true_label).mean())
-                _val_ap.append(average_precision_score(true_label, pred_score))
-                # val_f1.append(f1_score(true_label, pred_label))
-                _val_auc.append(roc_auc_score(true_label, pred_score))
-        return np.mean(_val_acc), np.mean(_val_ap), np.mean(_val_f1), np.mean(_val_auc)
-    
     # Load data and train val test split
     g_df = pd.read_csv('./processed/ml_{}.csv'.format(DATA))
     e_feat = np.load('./processed/ml_{}.npy'.format(DATA))
     n_feat = np.load('./processed/ml_{}_node.npy'.format(DATA))
     
-    val_time, test_time = list(np.quantile(g_df.ts, [0.70, 0.85]))  # 70 : 15 : 15
+    val_time, test_time = list(np.quantile(g_df.ts, [0.70, 0.85]))  # train: 70%, val: 15%, test: 15%
     
     src_l = g_df.u.values  # source list
     dst_l = g_df.i.values  # destination list
@@ -143,31 +143,30 @@ def run(args):
     is_new_node_edge = np.array([(a in new_node_set or b in new_node_set) for a, b in zip(src_l, dst_l)])
     nn_val_flag = valid_val_flag * is_new_node_edge
     nn_test_flag = valid_test_flag * is_new_node_edge
-    
+
     # validation and test with all edges
     val_src_l = src_l[valid_val_flag]
     val_dst_l = dst_l[valid_val_flag]
     val_ts_l = ts_l[valid_val_flag]
-    val_e_idx_l = e_idx_l[valid_val_flag]
-    val_label_l = label_l[valid_val_flag]
     
     test_src_l = src_l[valid_test_flag]
     test_dst_l = dst_l[valid_test_flag]
     test_ts_l = ts_l[valid_test_flag]
-    test_e_idx_l = e_idx_l[valid_test_flag]
-    test_label_l = label_l[valid_test_flag]
+    # test_e_idx_l = e_idx_l[valid_test_flag]
+    # test_label_l = label_l[valid_test_flag]
+    
     # validation and test with edges that at least has one new node (not in training set)
     nn_val_src_l = src_l[nn_val_flag]
     nn_val_dst_l = dst_l[nn_val_flag]
     nn_val_ts_l = ts_l[nn_val_flag]
-    nn_val_e_idx_l = e_idx_l[nn_val_flag]
-    nn_val_label_l = label_l[nn_val_flag]
+    # nn_val_e_idx_l = e_idx_l[nn_val_flag]
+    # nn_val_label_l = label_l[nn_val_flag]
     
     nn_test_src_l = src_l[nn_test_flag]
     nn_test_dst_l = dst_l[nn_test_flag]
     nn_test_ts_l = ts_l[nn_test_flag]
-    nn_test_e_idx_l = e_idx_l[nn_test_flag]
-    nn_test_label_l = label_l[nn_test_flag]
+    # nn_test_e_idx_l = e_idx_l[nn_test_flag]
+    # nn_test_label_l = label_l[nn_test_flag]
     
     # Initialize the data structure for graph and edge sampling
     # build the graph for fast query
@@ -265,12 +264,12 @@ def run(args):
         
         # validation phase use all information
         tgan.ngh_finder = full_ngh_finder
-        val_acc, val_ap, val_f1, val_auc = eval_one_epoch('val for old nodes', tgan, val_rand_sampler, val_src_l,
-                                                          val_dst_l, val_ts_l, val_label_l)
-        
-        nn_val_acc, nn_val_ap, nn_val_f1, nn_val_auc = eval_one_epoch('val for new nodes', tgan, val_rand_sampler,
-                                                                      nn_val_src_l,
-                                                                      nn_val_dst_l, nn_val_ts_l, nn_val_label_l)
+        # Validation for old (known) nodes
+        val_acc, val_ap, val_f1, val_auc = eval_one_epoch(tgan, val_rand_sampler, val_src_l,
+                                                          val_dst_l, val_ts_l, NUM_NEIGHBORS)
+        # Validation for new (unknown) nodes
+        nn_val_acc, nn_val_ap, nn_val_f1, nn_val_auc = eval_one_epoch(tgan, val_rand_sampler, nn_val_src_l,
+                                                                      nn_val_dst_l, nn_val_ts_l, NUM_NEIGHBORS)
         
         ed = time.time()
         print("Eval epoch {:.2f} [s]".format(ed - tm))
@@ -297,12 +296,12 @@ def run(args):
     
     # testing phase use all information
     tgan.ngh_finder = full_ngh_finder
-    test_acc, test_ap, test_f1, test_auc = eval_one_epoch('test for old nodes', tgan, test_rand_sampler, test_src_l,
-                                                          test_dst_l, test_ts_l, test_label_l)
-    
-    nn_test_acc, nn_test_ap, nn_test_f1, nn_test_auc = eval_one_epoch('test for new nodes', tgan, nn_test_rand_sampler,
-                                                                      nn_test_src_l,
-                                                                      nn_test_dst_l, nn_test_ts_l, nn_test_label_l)
+    # Testing for old (known) nodes
+    test_acc, test_ap, test_f1, test_auc = eval_one_epoch(tgan, test_rand_sampler, test_src_l,
+                                                          test_dst_l, test_ts_l, NUM_NEIGHBORS)
+    # Testing for new (unknown) nodes
+    nn_test_acc, nn_test_ap, nn_test_f1, nn_test_auc = eval_one_epoch(tgan, nn_test_rand_sampler, nn_test_src_l,
+                                                                      nn_test_dst_l, nn_test_ts_l, NUM_NEIGHBORS)
     
     logger.info('Test statistics: Old nodes -- acc: {:.4f}, auc: {:.4f}, ap: {:.4f}'.format(test_acc, test_auc, test_ap))
     logger.info('Test statistics: New nodes -- acc: {:.4f}, auc: {:.4f}, ap: {:.4f}'.format(nn_test_acc, nn_test_auc, nn_test_ap))
@@ -353,4 +352,4 @@ if __name__ == "__main__":
             run(_args)
         with open(prof_txt, "w") as wf:
             wf.write(str(prof.key_averages().table(sort_by="self_cpu_time_total")))
-        prof.export_chrome_trace(prof_json)
+        # prof.export_chrome_trace(prof_json)
